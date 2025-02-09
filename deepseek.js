@@ -42,6 +42,11 @@ export class DeepSeek extends plugin {
                     reg: '^#deepseek设置温度(.*)$',
                     fnc: 'setTemperature',
                     permission: 'master'
+                },
+                {
+                    reg: '^#deepseek设置思考过程(.*)$',
+                    fnc: 'setForwardMsg',
+                    permission: 'master'
                 }
             ]
         })
@@ -98,41 +103,25 @@ export class DeepSeek extends plugin {
             })
         } catch (error) {
             logger.error(error)
-            e.reply('AI对话请求发送失败，请检查日志')
+            e.reply('AI对话请求发送失败', true)
             return true
         }
         let originalRetMsg = completion.choices[0].message.content
         let thinking = completion.choices[0].message.reasoning_content
-        if (thinking) {
+        let forwardMsg = await redis.get('deepseekJS:forwardMsg') 
+        if (thinking && forwardMsg > 0) {
             await this.dealMessage(e, thinking)
+            if (forwardMsg == 2) {
+                thinking = await common.makeForwardMsg(e, ["以下为思考过程：", thinking])
+            }
             e.reply(thinking)
             await common.sleep(1000)
         }
         let matches = await this.dealMessage(e, originalRetMsg)
-        e.reply(matches)
+        e.reply(matches, true)
         groupMessages[e.group_id].push(msg)
         groupMessages[e.group_id].push({'role': 'assistant', 'content': completion.choices[0].message.content})
 
-    }
-    async setMaxLength(e) {
-        let length = e.msg.replace('#deepseek设置上下文长度', '').trim()
-        redis.set('deepseekJS:maxLength', length)
-        e.reply('设置成功')
-    }
-    async setHistoryLength(e) {
-        let length = e.msg.replace('#deepseek设置群聊记录长度', '').trim()
-        redis.set('deepseekJS:historyLength', length)
-        e.reply('设置成功')
-    }
-    async setPrompt(e) {
-        let prompt = e.msg.replace('#deepseek设置提示词', '').trim()
-        redis.set('deepseekJS:prompt', prompt)
-        e.reply('设置成功')
-    }
-    async setTemperature(e) {
-        let temperature = e.msg.replace('#deepseek设置温度', '').trim()
-        redis.set('deepseekJS:temperature', temperature)
-        e.reply('设置成功')
     }
     async dealMessage(e, originalRetMsg) {
         let atRegex = /(at:|@)([a-zA-Z0-9]+)|\[CQ:at,qq=(\d+)\]/g
@@ -154,6 +143,39 @@ export class DeepSeek extends plugin {
             matches.push(originalRetMsg.slice(lastIndex))
         }
         return matches
+    }
+    async setMaxLength(e) {
+        let length = e.msg.replace('#deepseek设置上下文长度', '').trim()
+        redis.set('deepseekJS:maxLength', length)
+        e.reply('设置成功')
+    }
+    async setHistoryLength(e) {
+        let length = e.msg.replace('#deepseek设置群聊记录长度', '').trim()
+        redis.set('deepseekJS:historyLength', length)
+        e.reply('设置成功')
+    }
+    async setPrompt(e) {
+        let prompt = e.msg.replace('#deepseek设置提示词', '').trim()
+        redis.set('deepseekJS:prompt', prompt)
+        e.reply('设置成功')
+    }
+    async setTemperature(e) {
+        let temperature = e.msg.replace('#deepseek设置温度', '').trim()
+        redis.set('deepseekJS:temperature', temperature)
+        e.reply('设置成功')
+    }
+    async setForwardMsg(e) {
+        let forwardMsg = e.msg.replace('#deepseek设置思考过程', '').trim()
+        if (forwardMsg === "关闭") {
+            redis.set('deepseekJS:forwardMsg', 0)
+            e.reply('设置成功，思考过程将不发送')
+        } else if (forwardMsg === "开启") {
+            redis.set('deepseekJS:forwardMsg', 1)
+            e.reply('设置成功，思考过程将直接发送')
+        } else if (forwardMsg === "转发") {
+            redis.set('deepseekJS:forwardMsg', 2)
+            e.reply('设置成功，思考过程将转发发送')
+        }
     }
     formatGroupChatHistory(groupChatHistory) {
         const regex = /\[CQ:image(.*?)\]/g
